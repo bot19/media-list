@@ -1,100 +1,96 @@
 # Media List
 
-Thin SPA for a personal media tracker: list items from Supabase, enrich new titles via a Netlify function, then save your rating and comments.
-
-## Stack
+Personal media tracker SPA: sign in, list your titles from Supabase, enrich a new title via a Netlify function, then save your rating and comments.
 
 | Layer | Choice |
 | --- | --- |
-| Client | Vite + React (SPA), Netlify hosting |
+| Client | Vite + React SPA → Netlify |
 | Backend | Supabase Auth + Postgres |
-| Enrichment | `netlify/functions/enrich` (LLM + web sources, mock fallback) |
+| Enrichment | `netlify/functions/enrich` (sources + optional LLM; labeled mock fallback) |
 
-**Local backend preference:** Docker Desktop + `supabase start` for auth/DB/seed.  
-**Deploy target:** Netlify frontend + hosted Supabase project.
+**Local BE:** Docker Desktop + `supabase start` (preferred for development).  
+**Deploy target:** Netlify + hosted Supabase.
 
-## Quick local test (auth + list/add)
+More detail: [`docs/`](./docs/) · agent guidance: [`AGENTS.md`](./AGENTS.md)
+
+## Quick start (local)
 
 Requires **Docker Desktop** running.
 
 ```bash
 npm install
-npx supabase start          # or: npm run supabase:start
-npx supabase status -o env  # copy API URL + anon key
+npm run supabase:start
+npx supabase status -o env   # note API_URL + ANON_KEY
 cp .env.example .env.local
-# set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY from status output
-npm run supabase:reset      # applies migrations + seed.sql
-npm run dev                 # http://127.0.0.1:5173
+# set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY from status
+npm run supabase:reset       # migrations + seed
+npm run dev                  # http://127.0.0.1:5173
 ```
 
-Sign in with the seed user:
+### Demo login (seed)
 
-- Email: `demo@media-list.local`
-- Password: `password123`
-
-You should see four demo rows. Use **Add media → Search / enrich** (mock mode without API keys) → confirm → save.
-
-Optional Netlify-local functions runner (same Vite app on port 8888):
-
-```bash
-npm run dev:netlify
-```
-
-`npm run dev` already mounts `/api/enrich` via a Vite middleware so enrichment works without Netlify CLI.
-
-## Media types & enrichment sources
-
-| Type | Preferred sources |
+| Field | Value |
 | --- | --- |
-| Movie / TV / Asian drama | IMDb (via OMDb) first, TMDB backup |
-| Anime | MyAnimeList (Jikan public API) + AniDB links |
+| Email | `demo@media-list.local` |
+| Password | `password123` |
 
-If live keys are missing or sources fail/time out, the function returns **labeled mock** candidates (`mode: "mock"`).
+You should see four seeded items for that user. Use **Add media → Search / enrich** (works in **mock** mode without enrichment API keys) → confirm → save.
+
+Full local walkthrough: [`docs/local-dev.md`](./docs/local-dev.md).
 
 ## Environment variables
 
-### Client (`.env.local` / Netlify build env)
+Copy [`.env.example`](./.env.example) → `.env.local` for the SPA.
 
-| Variable | Required | Notes |
+### Client (required)
+
+| Variable | Local example | Notes |
 | --- | --- | --- |
-| `VITE_SUPABASE_URL` | yes | Local: `http://127.0.0.1:54321`. Hosted: `https://PROJECT.supabase.co` |
-| `VITE_SUPABASE_ANON_KEY` | yes | Anon/public key from `supabase status` or hosted project settings |
+| `VITE_SUPABASE_URL` | `http://127.0.0.1:54321` | Hosted: `https://PROJECT.supabase.co` |
+| `VITE_SUPABASE_ANON_KEY` | from `supabase status` | Hosted: Project Settings → API |
 
-### Enrichment function (Netlify function env / shell)
+### Enrichment keys (optional)
 
-| Variable | Required | Notes |
-| --- | --- | --- |
-| `OMDB_API_KEY` | no | IMDb proxy for movie/TV/asian drama |
-| `TMDB_API_KEY` | no | TMDB backup |
-| `OPENAI_API_KEY` | no | Optional LLM refine of live candidates |
-| `OPENAI_MODEL` | no | Default `gpt-4o-mini` |
-| `ANIDB_CLIENT` | no | Reserved; without it AniDB is link-only |
+Set in the shell for `npm run dev`, or as Netlify function/env vars for deploy. **None required for a local demo** — the function returns labeled mock candidates when keys are missing or sources fail.
 
-No enrichment secrets are required for a local demo.
+| Variable | Purpose |
+| --- | --- |
+| `OMDB_API_KEY` | IMDb lookup via OMDb (movie / TV / asian drama) |
+| `TMDB_API_KEY` | TMDB backup for the same types |
+| `OPENAI_API_KEY` | Optional LLM refine of live candidates |
+| `OPENAI_MODEL` | Default `gpt-4o-mini` |
+| `ANIDB_CLIENT` | Reserved; without it AniDB is search-link only |
 
-### Hosted secrets checklist (Netlify)
+Anime live path uses MyAnimeList via the public Jikan API (no key). Details: [`docs/enrichment.md`](./docs/enrichment.md).
 
-Set at least:
+### Netlify hosted secrets
+
+Minimum:
 
 1. `VITE_SUPABASE_URL`
 2. `VITE_SUPABASE_ANON_KEY`
 
-Optionally add enrichment keys above for live lookups in production.
+Optional: enrichment keys above for live lookups in production.
 
-## Supabase schema
+## Netlify deploy notes
 
-Migration: `supabase/migrations/20261116120000_media_items.sql`
+Config is in [`netlify.toml`](./netlify.toml):
 
-`media_items` columns: `media_type`, `canonical_title`, `year`, `genre`, `poster_url`, `source_ratings`, `source_urls`, `user_rating`, `comments`, timestamps, `user_id`, with RLS so users only see their rows.
+- Build: `npm run build`
+- Publish: `dist`
+- Functions: `netlify/functions`
+- `/api/*` → `/.netlify/functions/:splat`
+- SPA fallback: `/*` → `/index.html`
 
-Seed: `supabase/seed.sql` (demo + alt users, sample titles).
+Suggested steps:
 
-## Deploy sketch
+1. Create a hosted Supabase project; apply [`supabase/migrations/`](./supabase/migrations/) (SQL editor or `supabase link` + `supabase db push`).
+2. Connect this GitHub repo to Netlify (same build/publish as above).
+3. Set the client env vars (and optional enrich keys) in Netlify.
+4. Add the Netlify site URL to Supabase Auth redirect allow-list.
 
-1. Create a hosted Supabase project; run the same migration (SQL editor or `supabase db push` after linking).
-2. Connect the GitHub repo to Netlify; publish directory `dist`, build `npm run build`.
-3. Set Netlify env vars listed above.
-4. Point Supabase Auth redirect URLs at your Netlify site URL.
+Local Netlify functions runner (optional): `npm run dev:netlify` (port **8888**).  
+Plain `npm run dev` already serves `/api/enrich` via a Vite middleware.
 
 ## Scripts
 
@@ -102,5 +98,16 @@ Seed: `supabase/seed.sql` (demo + alt users, sample titles).
 | --- | --- |
 | `npm run dev` | Vite SPA + local `/api/enrich` |
 | `npm run dev:netlify` | Netlify Dev (functions + SPA) |
-| `npm run build` | Production build |
+| `npm run build` | Typecheck + production build |
+| `npm run lint` | Oxlint |
 | `npm run supabase:start` / `stop` / `status` / `reset` | Local Supabase lifecycle |
+| `npm run supabase:types` | Generate TS types from local DB |
+
+## Docs map
+
+| Doc | Contents |
+| --- | --- |
+| [`docs/architecture.md`](./docs/architecture.md) | Components and request flow |
+| [`docs/local-dev.md`](./docs/local-dev.md) | Docker Supabase, seed, troubleshooting |
+| [`docs/enrichment.md`](./docs/enrichment.md) | Sources, keys, mock mode |
+| [`docs/schema.md`](./docs/schema.md) | `media_items` + RLS overview |
